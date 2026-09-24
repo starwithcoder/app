@@ -1,0 +1,19 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2196F3"/>
+      <stop offset="100%" stop-color="#1565C0"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角矩形背景 -->
+  <rect x="5" y="5" width="90" height="90" rx="15" fill="url(#logoGradient)" stroke="#E3F2FD" stroke-width="2"/>
+  <!-- 立体效果高光 -->
+  <rect x="10" y="10" width="80" height="20" rx="3" fill="rgba(255,255,255,0.2)"/>
+  <!-- 电脑显示器 -->
+  <rect x="24" y="30" width="52" height="34" rx="4" fill="white"/>
+  <rect x="29" y="35" width="42" height="24" rx="2" fill="url(#logoGradient)"/>
+  <!-- 屏幕内的对勾（维修完成） -->
+  <polyline points="38,47 46,54 62,40" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 显示器支架 -->
+  <path d="M42 64 h16 M50 64 v8" stroke="white" stroke-width="4" stroke-linecap="round"/>
+</svg>

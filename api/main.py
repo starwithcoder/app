@@ -3,8 +3,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from api.routers import router
+from infrastructure.database.redis_client import async_redis_client
 from infrastructure.logging.logger import logger
 from infrastructure.tools.mcp.mcp_manager import mcp_connect, mcp_cleanup
+from tasks.session_scanner import session_scanner
 
 
 @asynccontextmanager
@@ -23,9 +25,29 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"MCP连接建立失败: {str(e)}")
 
+    # 启动会话记忆扫描协程（归档 pending → Chroma + 条件触发摘要）
+    try:
+        session_scanner.start()
+        logger.info("会话记忆扫描协程启动完成")
+    except Exception as e:
+        logger.error(f"会话记忆扫描协程启动失败: {str(e)}")
+
     yield  # 应用运行期间（先别释放mcp链接 去处理请求...）
 
     # 应用关闭时执行
+    logger.info("应用关闭，停止会话记忆扫描协程...")
+    try:
+        await session_scanner.stop()
+        logger.info("会话记忆扫描协程已停止")
+    except Exception as e:
+        logger.error(f"会话记忆扫描协程停止失败: {str(e)}")
+
+    try:
+        await async_redis_client.close()
+        logger.info("Redis连接已关闭")
+    except Exception as e:
+        logger.error(f"Redis连接关闭失败: {str(e)}")
+
     logger.info("应用关闭，清理MCP连接...")
     try:
         await mcp_cleanup()

@@ -34,8 +34,8 @@ class MultiAgentService:
             session_id = request.context.session_id
             user_query = request.query
 
-            # 2. 准备历史对话
-            chat_history = session_service.prepare_history(user_id, session_id, user_query)
+            # 2. 准备历史对话（装配短期记忆上下文）
+            chat_history = await session_service.prepare_history(user_id, session_id, user_query)
 
             # 3. 运行Agent
             streaming_result = Runner.run_streamed(
@@ -53,10 +53,12 @@ class MultiAgentService:
             agent_result = streaming_result.final_output
 
             format_agent_result = re.sub(r'\n+', '\n', agent_result)
-            # 6. 拼接本轮助手回复并保存（chat_history 已含本轮 user，由 prepare_history 拼入）
-            chat_history.append({"role": "assistant", "content": format_agent_result})
-            # 7. 存储完整历史对话（含 system + 全部 user/assistant）
-            session_service.save_history(user_id, session_id, chat_history)
+            # 7. 保存本轮对话到 Redis 短期记忆
+            #    只传本轮新增的两条（user + assistant），
+            #    不要传整份 chat_history，否则会重复写入历史
+            await session_service.save_history(
+                user_id, session_id, user_query, format_agent_result
+            )
         except Exception as e:
             # 记录错误日志
             logger.error(f"AgentService.process_query执行出错: {str(e)}")

@@ -8,6 +8,7 @@ Redis 客户端封装
    —— 保证 Redis 故障不影响主对话流程（降级到 JSON 文件存储）
 """
 import redis
+import redis.asyncio
 from redis.exceptions import RedisError
 
 from config.settings import settings
@@ -72,8 +73,45 @@ class RedisClient:
             return False
 
 
+class AsyncRedisClient:
+    """异步 Redis 客户端封装（redis.asyncio）。
+
+    主链路（FastAPI + async LLM）应统一使用异步客户端，避免同步调用阻塞事件循环。
+    """
+
+    def __init__(self):
+        self._client = None
+
+    @property
+    def client(self) -> "redis.asyncio.Redis":
+        """获取异步 Redis 客户端（懒加载单例）。"""
+        if self._client is None:
+            self._client = redis.asyncio.Redis.from_url(
+                settings.REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=settings.REDIS_CONNECT_TIMEOUT,
+                socket_timeout=settings.REDIS_CONNECT_TIMEOUT,
+            )
+        return self._client
+
+    async def ping(self) -> bool:
+        """健康检查（异步）。"""
+        try:
+            return bool(await self.client.ping())
+        except RedisError as e:
+            logger.error(f"Redis(async) 连接失败: {e}")
+            return False
+
+    async def close(self) -> None:
+        """关闭连接（建议在 FastAPI lifespan 关闭时调用）。"""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+
 # 全局单例
 redis_client = RedisClient()
+async_redis_client = AsyncRedisClient()
 
 
 if __name__ == "__main__":

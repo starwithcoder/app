@@ -10,13 +10,10 @@ import chromadb
 from infrastructure.logging.logger import logger
 
 
-# collection 名称常量，避免魔法字符串散落各处
-MEMORIES_COLLECTION = "memories_collection"
-SUMMARY_COLLECTION = "summary_collection"
-
-
 class BaseCollection:
     """封装一个 chromadb collection 的通用 CRUD（按 user_id + session_id 隔离）。
+
+    只负责"技术实现"，不含任何业务实体语义；具体集合在 repositories 层定义。
     """
 
     collection_name: str = ""  # 子类必须覆盖
@@ -52,7 +49,6 @@ class BaseCollection:
                 ids=[unique_id],
                 documents=[document],
                 metadatas=[{
-
                     "user_id": str(user_id),
                     "session_id": str(session_id),
                     "timestamp": timestamp,
@@ -116,45 +112,21 @@ class BaseCollection:
         }
 
 
-class SessionCollection(BaseCollection):
-    """会话记忆集合（对应原 memories_collection）。"""
-
-    collection_name = MEMORIES_COLLECTION
-
-    async def add_memory(self, user_id: str, session_id: str, message: Dict[str, Any]) -> bool:
-        return await self.add(
-            user_id=user_id,
-            session_id=session_id,
-            document=message.get("message"),
-            role=message.get("role"),
-        )
-
-
-class SummaryCollection(BaseCollection):
-    """会话摘要集合（对应原 summary_collection）。"""
-
-    collection_name = SUMMARY_COLLECTION
-
-    async def add_summary(self, user_id: str, session_id: str, summary: str) -> bool:
-        return await self.add(
-            user_id=user_id,
-            session_id=session_id,
-            document=summary,
-            role="summary",
-        )
-
-
 class ChromadbClient:
-    """管理 chromadb PersistentClient 的生命周期，并暴露两个集合实例。
+    """管理 chromadb PersistentClient 的生命周期。
 
+    只负责连接 / 关闭 / 对外暴露底层 client；
+    具体集合（会话、摘要、事实）由 repositories 层基于此 client 构造。
     """
 
     def __init__(self, file_path: Path):
         self.file_path = file_path
         self._client = self.connect()
-        # 连接失败时为 None，委托方法会安全短路
-        self.memories = SessionCollection(self._client) if self._client else None
-        self.summaries = SummaryCollection(self._client) if self._client else None
+
+    @property
+    def client(self) -> Any:
+        """底层 chromadb 客户端（供 repositories 层构造具体集合）。"""
+        return self._client
 
     def connect(self) -> Any:
         try:
@@ -162,7 +134,6 @@ class ChromadbClient:
                 self.file_path.mkdir(parents=True, exist_ok=True)
             return chromadb.PersistentClient(path=str(self.file_path))
         except Exception:
-           
             logger.exception("connect: chromadb 连接失败")
             return None
 
@@ -171,52 +142,9 @@ class ChromadbClient:
         if self._client is not None:
             self._client.close()
 
-    # ---- 便捷委托方法（向后兼容原接口）----
-
-    async def add_memories(self, user_id: str, session_id: str, message: Dict[str, Any]) -> bool:
-        if not self.memories:
-            return False
-        return await self.memories.add_memory(user_id, session_id, message)
-
-    async def query_memories(self, user_id: str, session_id: str, question: str):
-        if not self.memories:
-            return None
-        return await self.memories.query(user_id, session_id, question)
-
-    async def all_memories(self, user_id: str, session_id: str):
-        if not self.memories:
-            return None
-        return await self.memories.all(user_id, session_id)
-
-    async def add_summary(self, user_id: str, session_id: str, summary: str) -> bool:
-        if not self.summaries:
-            return False
-        return await self.summaries.add_summary(user_id, session_id, summary)
-
-    async def query_summary(self, user_id: str, session_id: str, question: str):
-        if not self.summaries:
-            return None
-        return await self.summaries.query(user_id, session_id, question)
-
-    async def all_summary(self, user_id: str, session_id: str):
-        if not self.summaries:
-            return None
-        return await self.summaries.all(user_id, session_id)
-
-    async def new_memories(self, all_memories: Optional[Dict[str, Any]]):
-        if not self.memories:
-            return None
-        return await self.memories.newest(all_memories)
-
-    async def new_summary(self, all_summary: Optional[Dict[str, Any]]):
-        if not self.summaries:
-            return None
-        return await self.summaries.newest(all_summary)
-
 
 @lru_cache(maxsize=1)
 def get_chromadb_client() -> ChromadbClient:
-
     base_url = Path(__file__).parent.parent.parent
     file_path = base_url / "user_memories"
     return ChromadbClient(file_path)
@@ -224,15 +152,3 @@ def get_chromadb_client() -> ChromadbClient:
 
 # 模块级单例实例
 chromadb_client = get_chromadb_client()
-
-
-if __name__ == "__main__":
-    user_id = "0"
-    session_id = "0"
-
-    all_mem = asyncio.run(chromadb_client.all_memories(user_id=user_id, session_id=session_id))
-    print(all_mem)
-
-    if all_mem:
-        latest = asyncio.run(chromadb_client.new_memories(all_mem))
-        print(latest)
