@@ -85,9 +85,17 @@
             <div class="session-info">
               <div style="display: flex; align-items: center; gap: 8px;">
                 <img alt="豆包" src="//lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/chat/static/image/default.light.2ea4b2b4.png" class="session-icon" style="width: 24px; height: 24px; border-radius: 4px; object-fit: cover;">
-                <div class="session-preview">{{ session.memory[0]?.content || '空对话' }}</div>
+                <div class="session-preview">{{ session.title || session.memory[0]?.content || '空对话' }}</div>
               </div>
             </div>
+            <!-- 删除按钮：@click.stop 防止冒泡触发"选中会话" -->
+            <button
+              class="session-delete-btn"
+              title="删除会话"
+              @click.stop="emit('delete-session', session.session_id)"
+            >
+              ✕
+            </button>
           </div>
         </div>
       </div>
@@ -106,7 +114,13 @@ defineProps({
   selectedNavItem: { type: String, default: '' }
 });
 
-const emit = defineEmits(['create-session', 'select-session', 'toggle-sessions', 'select-nav']);
+const emit = defineEmits([
+  'create-session',
+  'select-session',
+  'toggle-sessions',
+  'select-nav',
+  'delete-session'
+]);
 
 // 侧边栏展开/收起状态属于纯 UI 状态，收在组件内部
 const isSidebarExpanded = ref(true);
@@ -133,5 +147,36 @@ const isSidebarExpanded = ref(true);
   flex: 1;
   overflow-y: auto;
   padding: 10px;
+}
+
+/* 会话删除按钮：默认隐藏，鼠标悬停时才显示 */
+.session-item {
+  position: relative;
+}
+
+.session-delete-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  border: none;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.session-item:hover .session-delete-btn {
+  opacity: 1;
+}
+
+.session-delete-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #e74c3c;
 }
 </style>

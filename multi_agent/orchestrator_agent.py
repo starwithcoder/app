@@ -4,6 +4,7 @@ from agents import (
     ModelSettings,
     Runner
 )
+from config.settings import settings
 from infrastructure.ai.openai_client import sub_model
 from infrastructure.ai.openai_client import main_model
 from infrastructure.ai.prompt_loader import load_prompt
@@ -19,6 +20,8 @@ orchestrator_agent = Agent(
     model=sub_model,      # 通用模型（已干活为主 推理可能有或者都没有）
     model_settings=ModelSettings(
         temperature=0,
+        # 上限：单次回复最大 token（防止模型输出过长，配置项 MAX_OUTPUT_TOKENS）
+        max_tokens=settings.MAX_OUTPUT_TOKENS,
     ),
     tools=AGENT_TOOLS,
 )

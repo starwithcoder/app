@@ -32,6 +32,11 @@ from infrastructure.logging.logger import logger
 # 活跃会话有序集合（member = "{user_id}:{session_id}"，score = 最后活跃时间戳）
 ACTIVE_SESSIONS_KEY = "chat:active_sessions"
 
+# 待删除会话队列（SET，member = "{user_id}:{session_id}"）
+# 用户点删除时先进这里，由后台协程慢慢做「归档 → 导出 → 真删」，
+# 放进 Redis 是为了多 worker 可见 + 重启不丢 + 只被消费一次
+DELETION_QUEUE_KEY = "chat:deletion_queue"
+
 # 释放锁的 Lua 脚本：只有 token 匹配才删除，避免误删别人的锁
 _RELEASE_LOCK_LUA = """
 if redis.call("GET", KEYS[1]) == ARGV[1] then
@@ -90,6 +95,16 @@ class RedisSessionRepository:
     def _member(user_id: str, session_id: str) -> str:
         return f"{user_id}:{session_id}"
 
+    @staticmethod
+    def user_sessions_key(user_id: str) -> str:
+        """用户的**持久会话索引**（会话目录，只增不删）。
+
+        与 ACTIVE_SESSIONS_KEY 的区别（别混用）：
+        - chat:active_sessions       = 扫描协程的"待办清单"，空闲久了会被移除
+        - chat:user:{u}:sessions     = "会话目录"，侧边栏用它列出全部会话
+        """
+        return f"chat:user:{user_id}:sessions"
+
     # ==================== 连接 ====================
 
     async def ping(self) -> bool:
@@ -121,6 +136,8 @@ class RedisSessionRepository:
                 self.pending_key(user_id, session_id),
                 json.dumps(payload, ensure_ascii=False),
             )
+            # 注意：这里**不做**会话登记，会话只由 create_session 创建
+            # （否则就出现第二个"创建点"，前端点一次新建会出现两条）
             # 刷新活跃时间：不刷新的话，正在聊的会话会被误判为空闲而提前归档
             await self.touch_session(user_id, session_id)
             return msg_id
@@ -189,12 +206,17 @@ class RedisSessionRepository:
     async def set_summary(
         self, user_id: str, session_id: str, summary: str, ttl: Optional[int] = None
     ) -> bool:
-        """写入滚动摘要。ttl 默认取 settings.REDIS_SESSION_TTL。"""
+        """写入滚动摘要。
+
+        ttl 默认取 settings.REDIS_SUMMARY_TTL（7 天）。
+        注意：不要用 REDIS_SESSION_TTL（那是短期记忆的，只有 1 天），
+        摘要属于长期记忆，过期会导致用户隔几天回来记忆断掉。
+        """
         try:
             await self._client.set(
                 self.summary_key(user_id, session_id),
                 summary,
-                ex=ttl if ttl is not None else settings.REDIS_SESSION_TTL,
+                ex=ttl if ttl is not None else settings.REDIS_SUMMARY_TTL,
             )
             return True
         except RedisError as e:
@@ -262,6 +284,118 @@ class RedisSessionRepository:
             logger.error(f"remove_active_session 失败: {e}")
             return False
 
+    # ==================== 会话索引 / 命名 ====================
+
+    async def create_session(
+        self, user_id: str, session_id: Optional[str] = None
+    ) -> Optional[str]:
+        """创建并登记一个新会话——**会话的唯一创建入口**。
+
+        其它地方（发消息、存档等）都不应再登记会话，避免出现"第二个创建点"。
+
+        幂等性：
+        - 传入已存在的 session_id → 直接返回，不重复创建
+        - 重复调用不传 id → 每次都生成新 id（所以前端只应调一次）
+
+        Args:
+            session_id: 不传则由后端生成，格式沿用前端约定
+                        session_{毫秒时间戳}_{8位随机}
+
+        Returns:
+            Optional[str]: session_id；失败返回 None。
+        """
+        if session_id:
+            # 已存在就复用，保证"只创建一次"
+            try:
+                if await self._client.sismember(self.user_sessions_key(user_id), session_id):
+                    return session_id
+            except RedisError as e:
+                logger.error(f"create_session 检查会话是否存在失败: {e}")
+            sid = session_id
+        else:
+            sid = f"session_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+
+        try:
+            await self._client.sadd(self.user_sessions_key(user_id), sid)
+            # created_at 只写一次，重复调用（幂等）不会覆盖已有值
+            await self._client.hsetnx(self.meta_key(user_id, sid), "created_at", time.time())
+            return sid
+        except RedisError as e:
+            logger.exception(f"create_session 失败 user={user_id} session={sid}: {e}")
+            return None
+
+    async def list_user_sessions(self, user_id: str) -> List[str]:
+        """取该用户全部会话 id（持久索引，不会因空闲被清理）。"""
+        try:
+            return [
+                str(sid)
+                for sid in await self._client.smembers(self.user_sessions_key(user_id))
+            ]
+        except RedisError as e:
+            logger.error(f"list_user_sessions 失败: {e}")
+            return []
+
+    async def set_title(self, user_id: str, session_id: str, title: str) -> bool:
+        """设置会话名（覆盖式）。"""
+        try:
+            await self._client.hset(
+                self.meta_key(user_id, session_id), mapping={"title": title}
+            )
+            return True
+        except RedisError as e:
+            logger.exception(f"set_title 失败: {e}")
+            return False
+
+    async def remove_from_session_index(self, user_id: str, session_id: str) -> bool:
+        """只从会话索引移除（列表里立刻消失），**不清任何数据**。
+
+        用于软删除：用户点删除后前端立刻看不到，真实数据留给后台协程慢慢处理。
+        """
+        try:
+            await self._client.srem(self.user_sessions_key(user_id), session_id)
+            return True
+        except RedisError as e:
+            logger.exception(f"remove_from_session_index 失败: {e}")
+            return False
+
+    async def enqueue_deletion(self, user_id: str, session_id: str) -> bool:
+        """把会话放进待删除队列（后台协程会来消费）。"""
+        try:
+            await self._client.sadd(DELETION_QUEUE_KEY, self._member(user_id, session_id))
+            return True
+        except RedisError as e:
+            logger.exception(f"enqueue_deletion 失败: {e}")
+            return False
+
+    async def list_deletion_queue(self) -> List[str]:
+        """取待删除队列的全部成员。"""
+        try:
+            return [str(m) for m in await self._client.smembers(DELETION_QUEUE_KEY)]
+        except RedisError as e:
+            logger.error(f"list_deletion_queue 失败: {e}")
+            return []
+
+    async def remove_from_deletion_queue(self, user_id: str, session_id: str) -> bool:
+        """处理完成后从队列移除。"""
+        try:
+            await self._client.srem(DELETION_QUEUE_KEY, self._member(user_id, session_id))
+            return True
+        except RedisError as e:
+            logger.exception(f"remove_from_deletion_queue 失败: {e}")
+            return False
+
+    async def set_title_if_absent(
+        self, user_id: str, session_id: str, title: str
+    ) -> bool:
+        """仅在会话名还为空时设置（首问自动命名用：只认第一条 user 消息）。"""
+        try:
+            return bool(
+                await self._client.hsetnx(self.meta_key(user_id, session_id), "title", title)
+            )
+        except RedisError as e:
+            logger.exception(f"set_title_if_absent 失败: {e}")
+            return False
+
     # ==================== meta / 摘要水位线 ====================
 
     _META_DEFAULTS: Dict[str, Any] = {
@@ -270,6 +404,8 @@ class RedisSessionRepository:
         "summarized_seq": 0,
         "last_summary_ts": 0.0,
         "summary_fail_count": 0,
+        "title": "",
+        "created_at": 0.0,
     }
 
     async def get_meta(self, user_id: str, session_id: str) -> Dict[str, Any]:
@@ -281,6 +417,8 @@ class RedisSessionRepository:
         - summarized_seq     : 已摘要的水位线
         - last_summary_ts    : 上次摘要时间
         - summary_fail_count : 摘要连续失败次数（超过阈值转死信，不再重试）
+        - title              : 会话名（首问自动生成，侧边栏展示用）
+        - created_at         : 会话创建时间戳
         """
         try:
             raw = await self._client.hgetall(self.meta_key(user_id, session_id))
@@ -292,6 +430,8 @@ class RedisSessionRepository:
         for key in ("msg_seq", "flushed_seq", "summarized_seq", "summary_fail_count"):
             meta[key] = _to_int(raw.get(key))
         meta["last_summary_ts"] = _to_float(raw.get("last_summary_ts"))
+        meta["created_at"] = _to_float(raw.get("created_at"))
+        meta["title"] = str(raw.get("title") or "")
         return meta
 
     async def mark_summarized(self, user_id: str, session_id: str) -> bool:
@@ -417,7 +557,7 @@ class RedisSessionRepository:
     # ==================== 会话清理 ====================
 
     async def delete_session(self, user_id: str, session_id: str) -> bool:
-        """删除会话的全部短期数据（pending/summary/deleted/meta）并移出活跃集合。"""
+        """删除会话：清短期数据 + 移出活跃集合 + 从持久索引移除。"""
         try:
             await self._client.delete(
                 self.pending_key(user_id, session_id),
@@ -425,6 +565,7 @@ class RedisSessionRepository:
                 self.deleted_key(user_id, session_id),
                 self.meta_key(user_id, session_id),
             )
+            await self._client.srem(self.user_sessions_key(user_id), session_id)
             await self.remove_active_session(user_id, session_id)
             return True
         except RedisError as e:
@@ -436,104 +577,7 @@ class RedisSessionRepository:
 redis_session_repository = RedisSessionRepository()
 
 
-if __name__ == "__main__":
-    # 自测：python -m repositories.redis_session_repository
-    # （必须用 -m，直接 python 跑会把 repositories/ 当根目录，config 等模块找不到）
-    import asyncio
-
-    async def _main() -> None:
-        repo = redis_session_repository
-        user_id, session_id = "__test_user__", "__test_session__"
-
-        if not await repo.ping():
-            print("Redis 不可用，跳过自测")
-            return
-
-        # 从干净状态开始
-        await repo.delete_session(user_id, session_id)
-
-        results: List[Tuple[str, bool]] = []
-
-        def check(name: str, ok: bool, detail: Any = "") -> None:
-            results.append((name, bool(ok)))
-            print(f"[{'PASS' if ok else 'FAIL'}] {name} {detail}")
-
-        try:
-            # 1. pending 追加 + 单调递增 id
-            id1 = await repo.append_message(user_id, session_id, {"role": "user", "message": "你好"})
-            id2 = await repo.append_message(
-                user_id, session_id, {"role": "assistant", "message": "你好，有什么可以帮你"}
-            )
-            check("append_message 分配递增 id", id1 == 1 and id2 == 2, f"id={id1},{id2}")
-            check("pending_len", await repo.pending_len(user_id, session_id) == 2)
-
-            # 2. 读取
-            check("get_pending 条数", len(await repo.get_pending(user_id, session_id)) == 2)
-            recent = await repo.get_recent_pending(user_id, session_id, 1)
-            check("get_recent_pending(1)", len(recent) == 1 and recent[0]["id"] == id2)
-            check(
-                "get_recent_pending(0) 返回空",
-                await repo.get_recent_pending(user_id, session_id, 0) == [],
-            )
-
-            # 3. summary
-            await repo.set_summary(user_id, session_id, "摘要：打招呼")
-            check(
-                "set/get_summary",
-                await repo.get_summary(user_id, session_id) == "摘要：打招呼",
-            )
-
-            # 4. 摘要水位线
-            check("pending_since_summary 初始", await repo.pending_since_summary(user_id, session_id) == 2)
-            await repo.mark_summarized(user_id, session_id)
-            check("mark_summarized 后归零", await repo.pending_since_summary(user_id, session_id) == 0)
-
-            # 5. 墓碑删除
-            await repo.mark_deleted(user_id, session_id, [id1])
-            deleted = await repo.get_deleted_ids(user_id, session_id)
-            check("mark_deleted", deleted == {str(id1)}, f"deleted={deleted}")
-            filtered = repo.filter_deleted(await repo.get_pending(user_id, session_id), deleted)
-            check("filter_deleted 过滤掉被删消息", [m["id"] for m in filtered] == [id2])
-
-            # 6. per-session 锁（互斥 + 可释放）
-            token = await repo.acquire_lock(user_id, session_id, ttl=10)
-            check("acquire_lock 首次成功", token is not None)
-            check(
-                "acquire_lock 重入失败（互斥）",
-                await repo.acquire_lock(user_id, session_id, ttl=10) is None,
-            )
-            released = token is not None and await repo.release_lock(user_id, session_id, token) is True
-            check("release_lock", released)
-            token2 = await repo.acquire_lock(user_id, session_id, ttl=10)
-            check("释放后可再次获取", token2 is not None)
-            if token2:
-                await repo.release_lock(user_id, session_id, token2)
-
-            # 7. 活跃会话 zset
-            member = f"{user_id}:{session_id}"
-            check("touch_session 进入活跃集合", member in await repo.get_active_sessions())
-            check("get_last_active 有值", await repo.get_last_active(user_id, session_id) is not None)
-            check("get_expired_sessions(0) 命中", member in await repo.get_expired_sessions(0))
-
-            # 8. 裁剪 / 清空
-            await repo.trim_pending(user_id, session_id, keep=1)
-            check("trim_pending keep=1", await repo.pending_len(user_id, session_id) == 1)
-            await repo.trim_pending(user_id, session_id, keep=0)
-            check("trim_pending keep=0 清空", await repo.pending_len(user_id, session_id) == 0)
-
-        finally:
-            await repo.delete_session(user_id, session_id)
-            check(
-                "delete_session 清理干净",
-                await repo.pending_len(user_id, session_id) == 0
-                and not await repo.get_deleted_ids(user_id, session_id),
-            )
-
-        failed = [name for name, ok in results if not ok]
-        print(f"\n通过 {len(results) - len(failed)}/{len(results)}")
-        print("全部通过" if not failed else f"失败项: {failed}")
-
-    asyncio.run(_main())
+# 测试已迁移到 tests/test_redis_session_repository.py：pytest tests/ -v
 
 
 #测试

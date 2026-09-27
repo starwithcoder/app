@@ -25,3 +25,11 @@ class UserSessionsRequest(BaseModel):
     """
     user_id: str = Field(description="用户唯一标识符")     # 用于查询该用户的所有会话记录
 
+
+class SessionMessagesRequest(BaseModel):
+    """
+    加载指定会话消息记录的请求体。
+    """
+    user_id: str = Field(description="用户唯一标识符")
+    session_id: str = Field(description="会话ID")
+

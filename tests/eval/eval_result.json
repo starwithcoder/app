@@ -1,0 +1,319 @@
+{
+  "summary": {
+    "mode": "full",
+    "top_k": 5,
+    "cases": 10,
+    "extract_success": 10,
+    "extract_rate": 1.0,
+    "recall_at_k": 10,
+    "recall_denominator": 10,
+    "recall_rate": 1.0,
+    "top1": 7,
+    "top1_rate": 0.7,
+    "mrr": 0.85,
+    "violations": 0
+  },
+  "rows": [
+    {
+      "id": "pref_01",
+      "category": "偏好记忆",
+      "question": "写 Python 的时候，代码风格统一靠什么工具保证？",
+      "expected": [
+        "ruff"
+      ],
+      "in_store": true,
+      "stored_count": 4,
+      "rank": 2,
+      "top1": false,
+      "mrr": 0.5,
+      "violation": false,
+      "distractor_count": 3,
+      "stored": [
+        "用户决定使用 ruff 作为 Python 代码格式化工具，不再使用 black。",
+        "用户以前用过 black 做 Python 格式化，后来嫌配置麻烦",
+        "用户用 flake8 做 Python 代码静态检查",
+        "项目 CI 里曾经跑过 yapf 做格式校验"
+      ],
+      "retrieved": [
+        "用户用 flake8 做 Python 代码静态检查",
+        "用户决定使用 ruff 作为 Python 代码格式化工具，不再使用 black。",
+        "用户以前用过 black 做 Python 格式化，后来嫌配置麻烦",
+        "项目 CI 里曾经跑过 yapf 做格式校验"
+      ]
+    },
+    {
+      "id": "pref_02",
+      "category": "偏好记忆",
+      "question": "我个人比较中意哪一款数据库产品？",
+      "expected": [
+        "PostgreSQL",
+        "Postgres"
+      ],
+      "in_store": true,
+      "stored_count": 4,
+      "rank": 1,
+      "top1": true,
+      "mrr": 1.0,
+      "violation": false,
+      "distractor_count": 3,
+      "stored": [
+        "用户偏好使用 PostgreSQL 作为关系型数据库",
+        "用户早年做过 MySQL 相关的运维工作",
+        "同事推荐过 MongoDB，用户没有采纳",
+        "用户最近在看 SQLite 的文档"
+      ],
+      "retrieved": [
+        "用户偏好使用 PostgreSQL 作为关系型数据库",
+        "用户早年做过 MySQL 相关的运维工作",
+        "用户最近在看 SQLite 的文档",
+        "同事推荐过 MongoDB，用户没有采纳"
+      ]
+    },
+    {
+      "id": "dec_01",
+      "category": "决策回溯",
+      "question": "前面我们拍板定下来的那个中间件是哪个？",
+      "expected": [
+        "Redis"
+      ],
+      "in_store": true,
+      "stored_count": 4,
+      "rank": 1,
+      "top1": true,
+      "mrr": 1.0,
+      "violation": false,
+      "distractor_count": 3,
+      "stored": [
+        "用户决定使用 Redis 作为缓存中间件。",
+        "项目早期评估过 Memcached，最终没有采用",
+        "用户了解过 Ehcache，但没有在项目里用过",
+        "Redis 的过期策略需要每周检查一次"
+      ],
+      "retrieved": [
+        "用户决定使用 Redis 作为缓存中间件。",
+        "项目早期评估过 Memcached，最终没有采用",
+        "用户了解过 Ehcache，但没有在项目里用过",
+        "Redis 的过期策略需要每周检查一次"
+      ]
+    },
+    {
+      "id": "dec_02",
+      "category": "决策回溯",
+      "question": "咱们的服务是怎么上线的？",
+      "expected": [
+        "Docker Compose",
+        "Docker"
+      ],
+      "in_store": true,
+      "stored_count": 4,
+      "rank": 1,
+      "top1": true,
+      "mrr": 1.0,
+      "violation": false,
+      "distractor_count": 3,
+      "stored": [
+        "用户决定采用 Docker Compose 作为部署方式，暂不使用 Kubernetes。",
+        "团队讨论过 Kubernetes，目前暂时搁置",
+        "用户本地调试时用 docker run 手动启动过服务",
+        "项目镜像推送到私有 Harbor 仓库"
+      ],
+      "retrieved": [
+        "用户本地调试时用 docker run 手动启动过服务",
+        "团队讨论过 Kubernetes，目前暂时搁置",
+        "用户决定采用 Docker Compose 作为部署方式，暂不使用 Kubernetes。",
+        "项目镜像推送到私有 Harbor 仓库"
+      ]
+    },
+    {
+      "id": "ent_01",
+      "category": "实体人物",
+      "question": "前端这一块是谁在跟？",
+      "expected": [
+        "张三"
+      ],
+      "in_store": true,
+      "stored_count": 4,
+      "rank": 1,
+      "top1": true,
+      "mrr": 1.0,
+      "violation": false,
+      "distractor_count": 3,
+      "stored": [
+        "用户决定由张三负责前端开发工作。",
+        "李四负责后端开发",
+        "王五负责测试工作",
+        "张三之前做过两年运维"
+      ],
+      "retrieved": [
+        "用户决定由张三负责前端开发工作。",
+        "李四负责后端开发",
+        "张三之前做过两年运维",
+        "王五负责测试工作"
+      ]
+    },
+    {
+      "id": "num_01",
+      "category": "数值细节",
+      "question": "服务对外暴露在哪个端口上？",
+      "expected": [
+        "8080"
+      ],
+      "in_store": true,
+      "stored_count": 5,
+      "rank": 1,
+      "top1": true,
+      "mrr": 1.0,
+      "violation": false,
+      "distractor_count": 3,
+      "stored": [
+        "服务监听端口是 8080。",
+        "服务部署地址是 192.168.1.10。",
+        "测试环境服务监听端口是 8081",
+        "数据库连接端口是 5432",
+        "内网管理后台端口是 8000"
+      ],
+      "retrieved": [
+        "服务监听端口是 8080。",
+        "数据库连接端口是 5432",
+        "测试环境服务监听端口是 8081",
+        "服务部署地址是 192.168.1.10。",
+        "内网管理后台端口是 8000"
+      ]
+    },
+    {
+      "id": "upd_01",
+      "category": "事实更新",
+      "question": "现在这个项目用的数据库是哪个？",
+      "expected": [
+        "PostgreSQL",
+        "Postgres"
+      ],
+      "in_store": true,
+      "stored_count": 3,
+      "rank": 1,
+      "top1": true,
+      "mrr": 1.0,
+      "violation": false,
+      "distractor_count": 2,
+      "stored": [
+        "用户决定采用 PostgreSQL 作为项目数据库",
+        "项目早期调研过 TiDB，没有继续推进",
+        "备选方案里考虑过 MongoDB，最终未采用"
+      ],
+      "retrieved": [
+        "用户决定采用 PostgreSQL 作为项目数据库",
+        "备选方案里考虑过 MongoDB，最终未采用",
+        "项目早期调研过 TiDB，没有继续推进"
+      ]
+    },
+    {
+      "id": "upd_02",
+      "category": "数值更新",
+      "question": "现在服务实际跑在哪个端口上？",
+      "expected": [
+        "9090"
+      ],
+      "in_store": true,
+      "stored_count": 4,
+      "rank": 2,
+      "top1": false,
+      "mrr": 0.5,
+      "violation": false,
+      "distractor_count": 3,
+      "stored": [
+        "用户决定使用 9090 作为服务端口",
+        "Prometheus 监控端口是 9091",
+        "数据库端口是 5432",
+        "网关对外端口是 80"
+      ],
+      "retrieved": [
+        "数据库端口是 5432",
+        "用户决定使用 9090 作为服务端口",
+        "网关对外端口是 80",
+        "Prometheus 监控端口是 9091"
+      ]
+    },
+    {
+      "id": "noise_01",
+      "category": "干扰抗噪",
+      "question": "咱们的数据多久做一次冷备，具体几点跑？",
+      "expected": [
+        "凌晨 3 点",
+        "3 点"
+      ],
+      "in_store": true,
+      "stored_count": 24,
+      "rank": 1,
+      "top1": true,
+      "mrr": 1.0,
+      "violation": false,
+      "distractor_count": 3,
+      "stored": [
+        "数据库备份时间是每天凌晨 3 点",
+        "用户喜欢喝美式咖啡",
+        "用户住在杭州西湖区",
+        "用户养了一只叫团子的猫",
+        "用户常用的编辑器是 VS Code",
+        "用户的生日是 6 月 15 日",
+        "用户通勤方式是地铁",
+        "用户喜欢的颜色是蓝色",
+        "用户每周三打羽毛球",
+        "用户本科学的是计算机",
+        "用户持有 C1 驾照",
+        "用户喜欢看科幻电影",
+        "用户常用输入法是搜狗",
+        "用户使用的手机是 iPhone 15",
+        "用户早餐常吃燕麦",
+        "用户去过日本旅游",
+        "用户不喜欢吃香菜",
+        "用户的工位在 3 楼",
+        "用户常用浏览器是 Edge",
+        "用户周末常去爬山",
+        "用户有一台 MacBook Pro",
+        "日志切割时间是每天凌晨 2 点",
+        "数据同步任务每天早上 6 点执行",
+        "系统巡检任务每天晚上 11 点执行"
+      ],
+      "retrieved": [
+        "数据库备份时间是每天凌晨 3 点",
+        "数据同步任务每天早上 6 点执行",
+        "日志切割时间是每天凌晨 2 点",
+        "系统巡检任务每天晚上 11 点执行",
+        "用户的生日是 6 月 15 日",
+        "用户每周三打羽毛球",
+        "用户周末常去爬山",
+        "用户使用的手机是 iPhone 15",
+        "用户的工位在 3 楼",
+        "用户有一台 MacBook Pro"
+      ]
+    },
+    {
+      "id": "proj_01",
+      "category": "项目背景",
+      "question": "我最近手上在忙的是什么？",
+      "expected": [
+        "车载语音助手",
+        "its_app"
+      ],
+      "in_store": true,
+      "stored_count": 4,
+      "rank": 2,
+      "top1": false,
+      "mrr": 0.5,
+      "violation": false,
+      "distractor_count": 3,
+      "stored": [
+        "用户正在开发 its_app 车载语音助手项目。",
+        "用户去年做过一个电商后台项目",
+        "用户了解过智能音箱的方案设计",
+        "团队还有一个叫 its_web 的管理后台"
+      ],
+      "retrieved": [
+        "用户去年做过一个电商后台项目",
+        "用户正在开发 its_app 车载语音助手项目。",
+        "团队还有一个叫 its_web 的管理后台",
+        "用户了解过智能音箱的方案设计"
+      ]
+    }
+  ]
+}

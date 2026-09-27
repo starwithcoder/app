@@ -1,6 +1,7 @@
 from agents import function_tool, Runner
 from agents.run import RunConfig
 
+from multi_agent.memory_tools import MEMORY_TOOLS
 from multi_agent.technical_agent import technical_agent
 from multi_agent.service_agent import comprehensive_service_agent
 from infrastructure.tools.mcp.mcp_servers import search_mcp_client, baidu_mcp_client
@@ -64,10 +65,12 @@ async def query_service_station_and_navigate(
         return f"业务专家暂时无法回答: {str(e)}"
 
 
-# 3. 将两个工具暴露出去
+# 3. 将工具暴露出去（业务工具 + 记忆检索工具）
+#    记忆工具让模型自己判断要不要查历史，而不是我们在代码里硬编码注入
 AGENT_TOOLS = [
     consult_technical_expert,
-    query_service_station_and_navigate
+    query_service_station_and_navigate,
+    *MEMORY_TOOLS,
 ]
 
 

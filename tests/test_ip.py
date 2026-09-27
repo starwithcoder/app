@@ -1,4 +1,8 @@
-import stun
+import pytest
+
+# 该文件其实是手动脚本（无 test_* 函数），但文件名会被 pytest 收集。
+# stun（pystun3）未安装时跳过，避免中断整个测试套件的收集。
+stun = pytest.importorskip("stun")
 
 def get_ip_via_stun():
     """

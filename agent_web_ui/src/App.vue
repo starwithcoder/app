@@ -21,6 +21,7 @@
           @select-session="sessionsApi.selectSession"
           @toggle-sessions="sessionsApi.toggleSessions"
           @select-nav="handleSelectNav"
+          @delete-session="handleDeleteSession"
         />
 
         <div class="main-container">
@@ -69,10 +70,26 @@ const chat = useChatStream({
 
 const sessionsApi = useSessions({
   currentUser,
-  onSessionChange: (session) => {
+  onSessionChange: async (session) => {
     chat.reset();
-    if (session && session.memory && session.memory.length > 0) {
-      chat.loadFromMemory(session.memory);
+    if (!session?.session_id) return;
+
+    // 只有**明确为 0 条**才跳过（新建的空会话）。
+    // 注意用 === 0 而不是 !session.total_messages：
+    // 后端若没返回该字段会是 undefined，!undefined 为真会导致误跳过、聊天区空白。
+    if (session.total_messages === 0) return;
+
+    // 列表接口不再返回正文（memory 恒为空），
+    // 点开会话时用单独接口按需加载聊天记录
+    const requestedId = session.session_id;
+    const messages = await sessionsApi.fetchSessionMessages(requestedId);
+
+    // 竞态防护：请求期间用户可能又切到别的会话，
+    // 此时丢弃这次响应，否则旧会话的消息会覆盖当前会话
+    if (selectedSessionId.value !== requestedId) return;
+
+    if (messages.length > 0) {
+      chat.loadFromMemory(messages);
     }
   },
   onLoaded: () => chat.scrollToBottom()
@@ -99,6 +116,25 @@ const handleSelectNav = (key) => {
 };
 
 const handleCreateSession = () => sessionsApi.createNewSession();
+
+/**
+ * 删除会话。
+ * 后端是软删除：调用后会话立刻从索引移除（列表里消失），
+ * 真实清理（补归档 → 导出 → 真删 → 清 Redis）由后台协程异步完成。
+ */
+const handleDeleteSession = async (sessionId) => {
+  const ok = await sessionsApi.deleteSession(sessionId);
+  if (!ok) return;
+
+  // 重新拉列表，被删的会话已不在索引里
+  await sessionsApi.fetchSessions();
+
+  // 若删掉的正是当前会话，清空聊天区与选中状态
+  if (selectedSessionId.value === sessionId) {
+    chat.reset();
+    selectedSessionId.value = '';
+  }
+};
 
 const handleLogout = () => {
   logout();

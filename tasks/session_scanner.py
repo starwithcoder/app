@@ -24,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from config.settings import settings
 from infrastructure.logging.logger import logger
+from repositories.memory_repository import facts_collection as chroma_facts_collection
 from repositories.memory_repository import session_collection as chroma_session_collection
 from repositories.memory_repository import summary_collection as chroma_summary_collection
 from repositories.redis_session_repository import redis_session_repository
@@ -31,13 +32,16 @@ from services.session_memory_service import session_memory_service
 
 # ==================== 阈值配置 ====================
 
-SCAN_INTERVAL = 60.0            # 默认轮询间隔（优先用 settings.SCAN_INTERVAL）
-SUMMARY_MIN_NEW = 20            # K：距上次摘要新增 ≥K 条触发摘要
-SUMMARY_MAX_INTERVAL = 30 * 60  # T：距上次摘要 ≥T 秒触发摘要
-CLEANUP_IDLE = 7 * 24 * 3600    # 空闲超过 7 天：最终归档后移出活跃集合
-KEEP_RECENT = 50                # pending 保留最近多少条（短期记忆窗口）
-LOCK_TTL = 60                   # per-session 锁 TTL（秒）
-MAX_SUMMARY_ATTEMPTS = 3        # 摘要连续失败上限，超过转死信不再重试
+# 以下阈值统一从 config/settings.py 读取，改配置即可，不用改代码
+# （保留模块级常量名，是为了自测可以临时覆盖）
+
+SCAN_INTERVAL = 60.0                            # 轮询间隔兜底值（优先用 settings.SCAN_INTERVAL）
+SUMMARY_MIN_NEW = settings.SUMMARY_MIN_NEW     # 下限：距上次摘要新增 ≥K 条触发摘要
+SUMMARY_MAX_INTERVAL = settings.SUMMARY_MAX_INTERVAL  # 上限：距上次摘要 ≥T 秒触发摘要
+KEEP_RECENT = settings.SHORT_TERM_KEEP         # 上限：pending 保留最近多少条
+CLEANUP_IDLE = 7 * 24 * 3600                   # 空闲超过 7 天：最终归档后移出活跃集合
+LOCK_TTL = 60                                  # per-session 锁 TTL（秒）
+MAX_SUMMARY_ATTEMPTS = 3                       # 摘要连续失败上限，超过转死信不再重试
 
 if KEEP_RECENT < SUMMARY_MIN_NEW:
     raise ValueError("KEEP_RECENT 必须 >= SUMMARY_MIN_NEW，否则未摘要的消息会被裁剪丢失")
@@ -81,7 +85,9 @@ class SessionScanner:
         self._summary_collection = (
             summary_collection if summary_collection is not None else chroma_summary_collection
         )
-        self._facts_collection = facts_collection
+        self._facts_collection = (
+            facts_collection if facts_collection is not None else chroma_facts_collection
+        )
         self.scan_interval = float(scan_interval or settings.SCAN_INTERVAL or SCAN_INTERVAL)
         self._stopping = asyncio.Event()
         self._task: Optional[asyncio.Task[None]] = None
@@ -122,8 +128,29 @@ class SessionScanner:
 
     # ==================== 单轮扫描 ====================
 
+    async def process_deletion_queue(self) -> None:
+        """消费待删除队列：归档 → 导出 → 真删 → 清 Redis。
+
+        失败的不出队，保留到下轮重试，避免留下半删状态。
+        """
+        members = await self.repo.list_deletion_queue()
+        if not members:
+            return
+
+        logger.info(f"[scanner] 待删除队列 {len(members)} 个")
+        for member in members:
+            if ":" not in member:
+                logger.warning(f"[scanner] 队列成员格式异常，跳过: {member}")
+                continue
+            user_id, session_id = member.split(":", 1)
+            ok = await session_memory_service.process_one_deletion(user_id, session_id)
+            if not ok:
+                logger.warning(f"[scanner] 删除失败，保留队列下轮重试: {member}")
+
     async def scan_once(self) -> None:
-        """扫描一轮：遍历所有活跃会话。"""
+        """扫描一轮：先处理删除队列，再遍历所有活跃会话。"""
+        await self.process_deletion_queue()
+
         members = await self.repo.get_active_sessions()
         if not members:
             return
@@ -203,7 +230,8 @@ class SessionScanner:
             return
 
         old_summary = await self.repo.get_summary(user_id, session_id) or ""
-        result = await self._summarize_fn(old_summary, to_summarize)
+        # 传 user_id：让抽取能拿到【已有事实主题】，更新时复用同一个 subject
+        result = await self._summarize_fn(old_summary, to_summarize, user_id)
 
         if not result or not result.get("summary"):
             count = await self.repo.bump_summary_failure(user_id, session_id)
@@ -211,8 +239,10 @@ class SessionScanner:
             return
 
         # 成功：写摘要 → 写事实 → 推进水位线 → 清零失败计数
-        await self.repo.set_summary(user_id, session_id, result["summary"])
-        await self._store_summary_to_chroma(user_id, session_id, result["summary"])
+        # 摘要是增量合并的，超长时压缩一次，防止无限膨胀
+        summary_text = await session_memory_service.compress_summary(result["summary"])
+        await self.repo.set_summary(user_id, session_id, summary_text)
+        await self._store_summary_to_chroma(user_id, session_id, summary_text)
         await self._store_facts(user_id, session_id, result.get("facts") or [])
         await self.repo.mark_summarized(user_id, session_id)
         await self.repo.reset_summary_failure(user_id, session_id)
@@ -282,7 +312,7 @@ class SessionScanner:
         if not facts:
             return
         if self._facts_collection is None:
-            logger.warning("[scanner] facts_collection 未注入，跳过事实写入（FactsCollection 待实现）")
+            logger.warning("[scanner] facts_collection 不可用（Chroma 连接失败？），跳过事实写入")
             return
         for fact in facts:
             try:
@@ -320,85 +350,5 @@ class SessionScanner:
 session_scanner = SessionScanner()
 
 
-if __name__ == "__main__":
-    # 自测：python -m tasks.session_scanner
-    # 用 stub 摘要函数 + stub 集合，不产生真实 LLM 调用，也不往 Chroma 写脏数据
-
-    class _StubSessionCollection:
-        def __init__(self):
-            self.written: List[Dict[str, Any]] = []
-
-        async def add_memory(self, user_id: str, session_id: str, message: Dict[str, Any]) -> bool:
-            self.written.append(message)
-            return True
-
-    class _StubSummaryCollection:
-        def __init__(self):
-            self.written: List[str] = []
-
-        async def add_summary(self, user_id: str, session_id: str, summary: str) -> bool:
-            self.written.append(summary)
-            return True
-
-    async def _stub_summarize(old_summary: str, messages: List[Dict[str, Any]]):
-        return {
-            "summary": f"[stub] 已摘要 {len(messages)} 条",
-            "facts": [{"category": "task", "subject": "测试", "content": "这是一条测试事实"}],
-        }
-
-    async def _main() -> None:
-        sess_col, summ_col = _StubSessionCollection(), _StubSummaryCollection()
-        scanner = SessionScanner(
-            summarize_fn=_stub_summarize,
-            session_collection=sess_col,
-            summary_collection=summ_col,
-        )
-        if not await scanner.repo.ping():
-            print("Redis 不可用，跳过自测")
-            return
-
-        user_id, session_id = "__test_user__", "__test_session__"
-        await scanner.repo.delete_session(user_id, session_id)
-
-        # 降低阈值，让 3 条消息也能触发摘要
-        # 注意：必须用 globals()，python -m 运行时本模块就是 __main__
-        globals()["SUMMARY_MIN_NEW"] = 1
-
-        for i in range(3):
-            await scanner.repo.append_message(
-                user_id, session_id, {"role": "user", "message": f"测试消息 {i}"}
-            )
-
-        results: List[Tuple[str, bool]] = []
-
-        def check(name: str, ok: bool, detail: Any = "") -> None:
-            results.append((name, bool(ok)))
-            print(f"[{'PASS' if ok else 'FAIL'}] {name} {detail}")
-
-        before = await scanner.repo.get_meta(user_id, session_id)
-        check("扫描前水位线为 0", before["flushed_seq"] == 0 and before["summarized_seq"] == 0, before)
-
-        await scanner.scan_once()
-
-        after = await scanner.repo.get_meta(user_id, session_id)
-        check("落库 3 条到 Chroma(stub)", len(sess_col.written) == 3, f"{len(sess_col.written)} 条")
-        check("flushed_seq 推进到 3", after["flushed_seq"] == 3, f"flushed_seq={after['flushed_seq']}")
-        check("summarized_seq 推进到 3", after["summarized_seq"] == 3, f"summarized_seq={after['summarized_seq']}")
-        check("last_summary_ts 已写入", after["last_summary_ts"] > 0)
-        check("失败计数为 0", after["summary_fail_count"] == 0)
-        check("摘要写入 Redis", (await scanner.repo.get_summary(user_id, session_id)) == "[stub] 已摘要 3 条")
-        check("摘要镜像到 Chroma(stub)", len(summ_col.written) == 1)
-
-        # 幂等：再扫一轮不应重复落库、也不应重复摘要
-        await scanner.scan_once()
-        check("重复扫描不重复落库", len(sess_col.written) == 3, f"{len(sess_col.written)} 条")
-        check("重复扫描不重复摘要", len(summ_col.written) == 1)
-
-        await scanner.repo.delete_session(user_id, session_id)
-        check("清理测试数据", await scanner.repo.pending_len(user_id, session_id) == 0)
-
-        failed = [n for n, ok in results if not ok]
-        print(f"\n通过 {len(results) - len(failed)}/{len(results)}")
-        print("全部通过" if not failed else f"失败项: {failed}")
-
-    asyncio.run(_main())
+# 测试已迁移到 tests/test_session_scanner.py：pytest tests/ -v
+# （stub 摘要 + stub Chroma 集合，不产生真实 LLM 调用、不写向量库）

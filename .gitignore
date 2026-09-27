@@ -61,6 +61,8 @@ coverage.xml
 .pyright/
 
 # ============ Local data (sensitive) ============
+# 已删除会话的导出数据（含用户对话原文，属敏感数据，绝不入库）
+exports/
 user_memories/
 chroma_data/
 *.sqlite

@@ -7,3 +7,7 @@ openai
 httpx
 openai-agents
 pystun3
+
+# 测试（异步用例需要 pytest-asyncio）
+pytest
+pytest-asyncio

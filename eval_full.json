@@ -1,0 +1,209 @@
+{
+  "summary": {
+    "mode": "full",
+    "top_k": 5,
+    "cases": 10,
+    "extract_success": 7,
+    "extract_rate": 0.7,
+    "recall_at_k": 7,
+    "recall_denominator": 7,
+    "recall_rate": 1.0,
+    "mrr": 1.0,
+    "violations": 2
+  },
+  "rows": [
+    {
+      "id": "pref_01",
+      "category": "偏好记忆",
+      "expected": [
+        "ruff"
+      ],
+      "in_store": true,
+      "stored_count": 1,
+      "rank": 1,
+      "mrr": 1.0,
+      "violation": false,
+      "stored": [
+        "在 Python 代码格式化工具上偏好使用 ruff，不再使用 black"
+      ],
+      "retrieved": [
+        "在 Python 代码格式化工具上偏好使用 ruff，不再使用 black"
+      ]
+    },
+    {
+      "id": "pref_02",
+      "category": "偏好记忆",
+      "expected": [
+        "PostgreSQL",
+        "Postgres"
+      ],
+      "in_store": true,
+      "stored_count": 1,
+      "rank": 1,
+      "mrr": 1.0,
+      "violation": false,
+      "stored": [
+        "偏好使用 PostgreSQL 数据库"
+      ],
+      "retrieved": [
+        "偏好使用 PostgreSQL 数据库"
+      ]
+    },
+    {
+      "id": "dec_01",
+      "category": "决策回溯",
+      "expected": [
+        "Redis"
+      ],
+      "in_store": true,
+      "stored_count": 1,
+      "rank": 1,
+      "mrr": 1.0,
+      "violation": false,
+      "stored": [
+        "选用 Redis 作为缓存方案，不考虑 Memcached"
+      ],
+      "retrieved": [
+        "选用 Redis 作为缓存方案，不考虑 Memcached"
+      ]
+    },
+    {
+      "id": "dec_02",
+      "category": "决策回溯",
+      "expected": [
+        "Docker Compose",
+        "Docker"
+      ],
+      "in_store": true,
+      "stored_count": 1,
+      "rank": 1,
+      "mrr": 1.0,
+      "violation": false,
+      "stored": [
+        "采用 Docker Compose 进行部署，暂不上 Kubernetes"
+      ],
+      "retrieved": [
+        "采用 Docker Compose 进行部署，暂不上 Kubernetes"
+      ]
+    },
+    {
+      "id": "ent_01",
+      "category": "实体人物",
+      "expected": [
+        "张三"
+      ],
+      "in_store": false,
+      "stored_count": 2,
+      "rank": null,
+      "mrr": 0.0,
+      "violation": false,
+      "stored": [
+        "负责前端开发",
+        "负责后端开发"
+      ],
+      "retrieved": [
+        "负责前端开发",
+        "负责后端开发"
+      ]
+    },
+    {
+      "id": "num_01",
+      "category": "数值细节",
+      "expected": [
+        "8080"
+      ],
+      "in_store": true,
+      "stored_count": 1,
+      "rank": 1,
+      "mrr": 1.0,
+      "violation": false,
+      "stored": [
+        "服务部署在 192.168.1.10:8080"
+      ],
+      "retrieved": [
+        "服务部署在 192.168.1.10:8080"
+      ]
+    },
+    {
+      "id": "upd_01",
+      "category": "事实更新",
+      "expected": [
+        "PostgreSQL",
+        "Postgres"
+      ],
+      "in_store": true,
+      "stored_count": 3,
+      "rank": 1,
+      "mrr": 1.0,
+      "violation": true,
+      "stored": [
+        "项目数据库从 MySQL 更换为 PostgreSQL",
+        "当前项目使用 PostgreSQL 作为数据库",
+        "MySQL 数据库方案已被废弃"
+      ],
+      "retrieved": [
+        "当前项目使用 PostgreSQL 作为数据库",
+        "项目数据库从 MySQL 更换为 PostgreSQL",
+        "MySQL 数据库方案已被废弃"
+      ]
+    },
+    {
+      "id": "upd_02",
+      "category": "数值更新",
+      "expected": [
+        "9090"
+      ],
+      "in_store": false,
+      "stored_count": 1,
+      "rank": null,
+      "mrr": 0.0,
+      "violation": true,
+      "stored": [
+        "服务端口曾计划使用 8080，但因冲突被弃用"
+      ],
+      "retrieved": [
+        "服务端口曾计划使用 8080，但因冲突被弃用"
+      ]
+    },
+    {
+      "id": "noise_01",
+      "category": "干扰抗噪",
+      "expected": [
+        "凌晨 3 点",
+        "3 点"
+      ],
+      "in_store": false,
+      "stored_count": 1,
+      "rank": null,
+      "mrr": 0.0,
+      "violation": false,
+      "stored": [
+        "数据库备份时间是每天凌晨3点"
+      ],
+      "retrieved": [
+        "数据库备份时间是每天凌晨3点"
+      ]
+    },
+    {
+      "id": "proj_01",
+      "category": "项目背景",
+      "expected": [
+        "车载语音助手",
+        "its_app"
+      ],
+      "in_store": true,
+      "stored_count": 2,
+      "rank": 1,
+      "mrr": 1.0,
+      "violation": false,
+      "stored": [
+        "its_app 是一个车载语音助手项目",
+        "用户正在开发 its_app"
+      ],
+      "retrieved": [
+        "用户正在开发 its_app",
+        "its_app 是一个车载语音助手项目"
+      ]
+    }
+  ]
+}

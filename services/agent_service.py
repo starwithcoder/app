@@ -1,6 +1,7 @@
 import re
 from collections.abc import AsyncGenerator
 from agents.run import Runner, RunConfig
+from multi_agent.memory_tools import SessionContext
 from multi_agent.orchestrator_agent import orchestrator_agent
 from schemas.request import ChatMessageRequest
 from services.session_service import session_service
@@ -34,30 +35,41 @@ class MultiAgentService:
             session_id = request.context.session_id
             user_query = request.query
 
-            # 2. 准备历史对话（装配短期记忆上下文）
+            # 2. 准备历史对话（装配短期记忆上下文，只读）
             chat_history = await session_service.prepare_history(user_id, session_id, user_query)
 
-            # 3. 运行Agent
+            # 3. 先把用户消息落库（不等模型答完）
+            #    好处：流式中断 / 客户端断开也不会丢这一轮，
+            #    且会话立刻进入持久索引（含首问自动命名），侧边栏马上可见
+            #    注意：只在首次执行时记录，重试（flag=False）不再重复写
+            if flag:
+                await session_service.record_user_message(user_id, session_id, user_query)
+
+            # 4. 运行Agent
+            #    注入会话上下文：记忆工具靠它取 user_id / session_id
+            #    （不注入的话，模型调 recall 时不知道该查哪个用户）
             streaming_result = Runner.run_streamed(
                 starting_agent=orchestrator_agent,
                 input=chat_history,  # 列表
+                context=SessionContext(
+                    user_id=user_id,
+                    session_id=session_id or "default_session",
+                ),
                 max_turns=5,  # COT(思考 行动 观察)--->迭代多少次（不是异常重试）
                 run_config=RunConfig(tracing_disabled=True)
             )
 
-            # 4. 处理Agent的事件流（事件流）
+            # 5. 处理Agent的事件流（事件流）
             async for chunk in process_stream_response(streaming_result):
                 yield chunk
 
-            # 5. 获取Agent的结果
+            # 6. 获取Agent的结果
             agent_result = streaming_result.final_output
 
             format_agent_result = re.sub(r'\n+', '\n', agent_result)
-            # 7. 保存本轮对话到 Redis 短期记忆
-            #    只传本轮新增的两条（user + assistant），
-            #    不要传整份 chat_history，否则会重复写入历史
-            await session_service.save_history(
-                user_id, session_id, user_query, format_agent_result
+            # 7. 只补存助手回复（用户消息已在第 3 步落库）
+            await session_service.record_assistant_message(
+                user_id, session_id, format_agent_result
             )
         except Exception as e:
             # 记录错误日志
