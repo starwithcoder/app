@@ -75,6 +75,7 @@ def main():
 
     print("\n[6] MCP 服务配置")
     print(f"{'DashScope URL':<20}: {settings.DASHSCOPE_BASE_URL or '未配置'}")
+    print(f"{'DashScope Key':<20}: {mask_secret(settings.DASHSCOPE_API_KEY)}")
     print(f"{'Baidu Map AK':<20}: {mask_secret(settings.BAIDUMAP_AK)}")
 
     print("\n==================================================")

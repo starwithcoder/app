@@ -149,8 +149,8 @@ class Settings(BaseSettings):
         description="通义千问 DashScope Base URL"
     )
     DASHSCOPE_API_KEY: Optional[str] = Field(
-        default="sk-26d57c968c364e7bb14f1fc350d4bff0",
-        description="通义千问 DashScope API Key"
+        default=None,
+        description="通义千问 DashScope API Key（从 .env 读取，勿硬编码）"
     )
 
     # 百度地图服务
