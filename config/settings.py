@@ -150,7 +150,7 @@ class Settings(BaseSettings):
     )
     DASHSCOPE_API_KEY: Optional[str] = Field(
         default=None,
-        description="通义千问 DashScope API Key（从 .env 读取，勿硬编码）"
+        description="通义千问 DashScope API Key"
     )
 
     # 百度地图服务
